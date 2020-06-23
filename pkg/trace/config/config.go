@@ -133,8 +133,8 @@ func New() *AgentConfig {
 		MaxTPS:          10,
 		MaxEPS:          200,
 
-		ReceiverHost: "localhost",
-		ReceiverPort: 8126,
+		ReceiverHost:    "localhost",
+		ReceiverPort:    8126,
 		MaxRequestBytes: 50 * 1024 * 1024, // 50MB
 
 		StatsWriter:             new(WriterConfig),
