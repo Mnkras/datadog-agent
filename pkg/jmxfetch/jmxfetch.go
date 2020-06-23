@@ -149,7 +149,7 @@ func (j *JMXFetch) Monitor() {
 		default:
 			// restart
 			log.Warnf("JMXFetch process had to be restarted.")
-			j.Start(false)
+			j.Start(false) //nolint:errcheck
 		}
 	}
 
@@ -274,6 +274,7 @@ func (j *JMXFetch) Start(manage bool) error {
 		"--reconnection_timeout", fmt.Sprintf("%v", config.Datadog.GetInt("jmx_reconnection_timeout")), // Timeout for instance reconnection in seconds
 		"--reconnection_thread_pool_size", fmt.Sprintf("%v", config.Datadog.GetInt("jmx_reconnection_thread_pool_size")), // Size for the JMXFetch reconnection thread pool
 		"--log_level", jmxLogLevel,
+		"--log_format_rfc3339", fmt.Sprintf("%v", config.Datadog.GetBool("log_format_rfc3339")),
 		"--reporter", reporter, // Reporter to use
 	)
 
@@ -342,8 +343,8 @@ func (j *JMXFetch) Wait() error {
 }
 
 func (j *JMXFetch) heartbeat(beat *time.Ticker) {
-	health := health.Register("jmxfetch")
-	defer health.Deregister()
+	health := health.RegisterLiveness("jmxfetch")
+	defer health.Deregister() //nolint:errcheck
 
 	for range beat.C {
 		select {

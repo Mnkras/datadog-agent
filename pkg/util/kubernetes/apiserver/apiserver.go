@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -31,6 +32,9 @@ import (
 
 	wpa_client "github.com/DataDog/watermarkpodautoscaler/pkg/client/clientset/versioned"
 	wpa_informers "github.com/DataDog/watermarkpodautoscaler/pkg/client/informers/externalversions"
+
+	dd_client "github.com/DataDog/datadog-operator/pkg/generated/clientset/versioned"
+	dd_informers "github.com/DataDog/datadog-operator/pkg/generated/informers/externalversions"
 )
 
 var (
@@ -58,14 +62,30 @@ type APIClient struct {
 	// UnassignedPodInformerFactory gives access to filtered informers
 	UnassignedPodInformerFactory informers.SharedInformerFactory
 
+	// CertificateSecretInformerFactory gives access to filtered informers
+	// This informer can be used by the Admission Controller to only watch the secret object
+	// that contains the webhook certificate.
+	CertificateSecretInformerFactory informers.SharedInformerFactory
+
+	// WebhookConfigInformerFactory gives access to filtered informers
+	// This informer can be used by the Admission Controller to only watch
+	// the corresponding MutatingWebhookConfiguration object.
+	WebhookConfigInformerFactory informers.SharedInformerFactory
+
 	// WPAClient gives access to WPA API
 	WPAClient wpa_client.Interface
-
 	// WPAInformerFactory gives access to informers for Watermark Pod Autoscalers.
 	WPAInformerFactory wpa_informers.SharedInformerFactory
+
+	// DDClient gives access to all datadoghq/ custom types
+	DDClient dd_client.Interface
+	// DDInformerFactory gives access to informers for all datadoghq/ custom types
+	DDInformerFactory dd_informers.SharedInformerFactory
+
 	// used to setup the APIClient
 	initRetry      retry.Retrier
 	Cl             kubernetes.Interface
+	DynamicCl      dynamic.Interface
 	timeoutSeconds int64
 }
 
@@ -75,7 +95,7 @@ func GetAPIClient() (*APIClient, error) {
 		globalAPIClient = &APIClient{
 			timeoutSeconds: config.Datadog.GetInt64("kubernetes_apiserver_client_timeout"),
 		}
-		globalAPIClient.initRetry.SetupRetrier(&retry.Config{
+		globalAPIClient.initRetry.SetupRetrier(&retry.Config{ //nolint:errcheck
 			Name:              "apiserver",
 			AttemptMethod:     globalAPIClient.connect,
 			Strategy:          retry.Backoff,
@@ -90,6 +110,7 @@ func GetAPIClient() (*APIClient, error) {
 	}
 	return globalAPIClient, nil
 }
+
 func getClientConfig() (*rest.Config, error) {
 	var clientConfig *rest.Config
 	var err error
@@ -124,6 +145,15 @@ func getKubeClient(timeout time.Duration) (kubernetes.Interface, error) {
 	return kubernetes.NewForConfig(clientConfig)
 }
 
+func getDynamicKubeClient(timeout time.Duration) (dynamic.Interface, error) {
+	clientConfig, err := getClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	clientConfig.Timeout = timeout
+	return dynamic.NewForConfig(clientConfig)
+}
+
 func getWPAClient(timeout time.Duration) (wpa_client.Interface, error) {
 	clientConfig, err := getClientConfig()
 	if err != nil {
@@ -142,6 +172,26 @@ func getWPAInformerFactory() (wpa_informers.SharedInformerFactory, error) {
 		return nil, err
 	}
 	return wpa_informers.NewSharedInformerFactory(client, resyncPeriodSeconds*time.Second), nil
+}
+
+func getDDClient(timeout time.Duration) (dd_client.Interface, error) {
+	clientConfig, err := getClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	clientConfig.Timeout = timeout
+	return dd_client.NewForConfig(clientConfig)
+}
+
+func getDDInformerFactory() (dd_informers.SharedInformerFactory, error) {
+	// default to 300s
+	resyncPeriodSeconds := time.Duration(config.Datadog.GetInt64("kubernetes_informers_resync_period"))
+	client, err := getDDClient(0) // No timeout for the Informers, to allow long watch.
+	if err != nil {
+		log.Infof("Could not get apiserver client: %v", err)
+		return nil, err
+	}
+	return dd_informers.NewSharedInformerFactory(client, resyncPeriodSeconds*time.Second), nil
 }
 
 func getInformerFactory() (informers.SharedInformerFactory, error) {
@@ -171,6 +221,7 @@ func (c *APIClient) connect() error {
 		log.Infof("Could not get apiserver client: %v", err)
 		return err
 	}
+
 	// informer factory uses its own clientset with a larger timeout
 	c.InformerFactory, err = getInformerFactory()
 	if err != nil {
@@ -186,6 +237,29 @@ func (c *APIClient) connect() error {
 		)
 	}
 
+	if config.Datadog.GetBool("admission_controller.enabled") {
+		nameFieldkey := "metadata.name"
+		optionsForService := func(options *metav1.ListOptions) {
+			options.FieldSelector = fields.OneTermEqualSelector(nameFieldkey, config.Datadog.GetString("admission_controller.certificate.secret_name")).String()
+		}
+		c.CertificateSecretInformerFactory, err = getInformerFactoryWithOption(
+			informers.WithTweakListOptions(optionsForService),
+		)
+
+		optionsForWebhook := func(options *metav1.ListOptions) {
+			options.FieldSelector = fields.OneTermEqualSelector(nameFieldkey, config.Datadog.GetString("admission_controller.webhook_name")).String()
+		}
+		c.WebhookConfigInformerFactory, err = getInformerFactoryWithOption(
+			informers.WithTweakListOptions(optionsForWebhook),
+		)
+
+		c.DynamicCl, err = getDynamicKubeClient(time.Duration(c.timeoutSeconds) * time.Second)
+		if err != nil {
+			log.Infof("Could not get apiserver dynamic client: %v", err)
+			return err
+		}
+	}
+
 	if config.Datadog.GetBool("external_metrics_provider.wpa_controller") {
 		if c.WPAInformerFactory, err = getWPAInformerFactory(); err != nil {
 			log.Errorf("Error getting WPA Informer Factory: %s", err.Error())
@@ -193,6 +267,16 @@ func (c *APIClient) connect() error {
 		}
 		if c.WPAClient, err = getWPAClient(time.Duration(c.timeoutSeconds) * time.Second); err != nil {
 			log.Errorf("Error getting WPA Client: %s", err.Error())
+			return err
+		}
+	}
+	if config.Datadog.GetBool("external_metrics_provider.use_datadogmetric_crd") {
+		if c.DDInformerFactory, err = getDDInformerFactory(); err != nil {
+			log.Errorf("Error getting datadoghq Client: %s", err.Error())
+			return err
+		}
+		if c.DDClient, err = getDDClient(time.Duration(c.timeoutSeconds) * time.Second); err != nil {
+			log.Errorf("Error getting datadoghq Informer Factory: %s", err.Error())
 			return err
 		}
 	}
@@ -250,6 +334,7 @@ func (c *APIClient) checkResourcesAuth() error {
 	if config.Datadog.GetBool("kubernetes_collect_metadata_tags") == false {
 		return aggregateCheckResourcesErrors(errorMessages)
 	}
+
 	_, err = c.Cl.CoreV1().Services("").List(metav1.ListOptions{Limit: 1, TimeoutSeconds: &c.timeoutSeconds})
 	if err != nil {
 		errorMessages = append(errorMessages, fmt.Sprintf("service collection: %q", err.Error()))
@@ -257,6 +342,7 @@ func (c *APIClient) checkResourcesAuth() error {
 			return aggregateCheckResourcesErrors(errorMessages)
 		}
 	}
+
 	_, err = c.Cl.CoreV1().Pods("").List(metav1.ListOptions{Limit: 1, TimeoutSeconds: &c.timeoutSeconds})
 	if err != nil {
 		errorMessages = append(errorMessages, fmt.Sprintf("pod collection: %q", err.Error()))
@@ -264,11 +350,19 @@ func (c *APIClient) checkResourcesAuth() error {
 			return aggregateCheckResourcesErrors(errorMessages)
 		}
 	}
-	_, err = c.Cl.CoreV1().Nodes().List(metav1.ListOptions{Limit: 1, TimeoutSeconds: &c.timeoutSeconds})
 
+	_, err = c.Cl.CoreV1().Nodes().List(metav1.ListOptions{Limit: 1, TimeoutSeconds: &c.timeoutSeconds})
 	if err != nil {
 		errorMessages = append(errorMessages, fmt.Sprintf("node collection: %q", err.Error()))
 	}
+
+	if c.DDClient != nil {
+		_, err = c.DDClient.DatadoghqV1alpha1().DatadogMetrics("").List(metav1.ListOptions{Limit: 1, TimeoutSeconds: &c.timeoutSeconds})
+		if err != nil {
+			errorMessages = append(errorMessages, fmt.Sprintf("DatadogMetric collection: %q", err.Error()))
+		}
+	}
+
 	return aggregateCheckResourcesErrors(errorMessages)
 }
 
