@@ -11,7 +11,6 @@ import yaml
 
 from invoke import task
 from invoke.exceptions import Exit
-import requests
 
 from .utils import get_build_flags
 from .go import fmt, lint, vet, misspell, ineffassign, lint_licenses, golangci_lint, generate
@@ -179,6 +178,7 @@ def lint_teamassignment(ctx):
     """
     pr_url = os.environ.get("CIRCLE_PULL_REQUEST")
     if pr_url:
+        import requests
         pr_id = pr_url.rsplit('/')[-1]
 
         res = requests.get("https://api.github.com/repos/DataDog/datadog-agent/issues/{}".format(pr_id))
