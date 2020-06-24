@@ -235,7 +235,7 @@ def misspell(ctx, targets):
         print("misspell found no issues")
 
 @task
-def deps(ctx, no_checks=False, core_dir=None, verbose=False, android=False, dep_vendor_only=False, no_dep_ensure=False, integrations_version="nightly", python_command="python3"):
+def deps(ctx, no_checks=False, core_dir=None, verbose=False, android=False, dep_vendor_only=False, no_dep_ensure=False, integrations_version="nightly", python_command="python2"):
     """
     Setup Go dependencies
     """
