@@ -83,7 +83,7 @@ jobs:
           name: test rtloader
           command: |
             # remove base check before running tests, go on if pip fails
-            pip uninstall datadog-checks-base -y || :
+            python3 -m pip uninstall datadog-checks-base -y || :
             inv rtloader.test
       - run:
           name: pre-compile go deps
