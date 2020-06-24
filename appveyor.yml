@@ -46,7 +46,8 @@ cache:
 build: off
 
 test_script:
-  - inv -e deps --dep-vendor-only --pip-command "%PIP3%"
+  # FIXME: datadog_checks need Python 3.8+
+  - inv -e deps --dep-vendor-only --pip-command "%PIP2%"
   - inv -e rtloader.make --install-prefix=%APPVEYOR_BUILD_FOLDER%\dev --cmake-options="-G \"MSYS Makefiles\""
   - inv -e rtloader.install
   - inv -e rtloader.format --raise-if-changed
