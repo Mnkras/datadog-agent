@@ -19,6 +19,11 @@ type StatusResponse struct {
 	IsUpToDate bool `json:"isuptodate"`
 }
 
+// ResultResponse holds the DCA response for a status report
+type ResultResponse struct {
+	Ok bool `json:"ok"`
+}
+
 // ConfigResponse holds the DCA response for a config query
 type ConfigResponse struct {
 	LastChange int64                `json:"last_change"`

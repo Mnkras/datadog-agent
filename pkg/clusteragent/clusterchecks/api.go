@@ -88,3 +88,10 @@ func (h *Handler) GetAllEndpointsCheckConfigs() (types.ConfigResponse, error) {
 	}
 	return response, err
 }
+
+func (h *Handler) RebalanceClusterChecks() (types.ResultResponse, error) {
+	h.dispatcher.rebalance()
+	return types.ResultResponse{
+		Ok: true,
+	}, nil
+}
