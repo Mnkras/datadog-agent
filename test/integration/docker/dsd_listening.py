@@ -45,14 +45,14 @@ def tearDownModule():
 def waitUntilListening(container, retries=20):
     for _ in range(0, retries):
         out = container.exec_run(cmd="netstat -a").output
-        if b":8125" in out or bytes(SOCKET_PATH) in out:
+        if b":8125" in out or bytes(SOCKET_PATH, encoding="utf-8") in out:
             return True
     return False
 
 
 def isUDPListening(container):
     out = container.exec_run(cmd="netstat -a").output
-    return ":8125" in out
+    return b":8125" in out
 
 
 def isUDSListening(container, retries=10):
@@ -74,7 +74,7 @@ class DSDStaticTest(unittest.TestCase):
             stdout=True,
             command='sh -c "apk add --no-cache file && file /dogstatsd"',
         )
-        self.assertIn("statically linked", fileOutput)
+        self.assertIn(b"statically linked", fileOutput)
 
 
 class DSDListeningTest(unittest.TestCase):
