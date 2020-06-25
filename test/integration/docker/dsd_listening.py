@@ -5,7 +5,7 @@ import os
 # The DOCKER_IMAGE envvar is needed to specify what
 # image to test
 
-SOCKET_PATH = "/tmp/statsd.socket"
+SOCKET_PATH = b"/tmp/statsd.socket"
 
 COMMON_ENVIRONMENT = [
     "DD_DD_URL=http://dummy",
@@ -14,8 +14,8 @@ COMMON_ENVIRONMENT = [
 
 ENVIRONMENTS = {
     "udp": [],
-    "uds": ["DD_DOGSTATSD_SOCKET=" + SOCKET_PATH, "DD_DOGSTATSD_PORT=0"],
-    "both": ["DD_DOGSTATSD_SOCKET=" + SOCKET_PATH, "DD_DOGSTATSD_PORT=8125"],
+    "uds": ["DD_DOGSTATSD_SOCKET=" + SOCKET_PATH.decode('utf-8'), "DD_DOGSTATSD_PORT=0"],
+    "both": ["DD_DOGSTATSD_SOCKET=" + SOCKET_PATH.decode('utf-8'), "DD_DOGSTATSD_PORT=8125"],
 }
 
 containers = {}
@@ -45,7 +45,7 @@ def tearDownModule():
 def waitUntilListening(container, retries=20):
     for _ in range(0, retries):
         out = container.exec_run(cmd="netstat -a").output
-        if b":8125" in out or bytes(SOCKET_PATH, encoding="utf-8") in out:
+        if b":8125" in out or SOCKET_PATH in out:
             return True
     return False
 
