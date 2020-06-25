@@ -1,4 +1,5 @@
 import base64
+import invoke
 import json
 import os
 import tempfile
@@ -12,7 +13,12 @@ ssm_param_pfx_part2 = "keygen.dd_win_agent_codesign.pfx_b64_1"
 
 def get_value_of_param(ctx, param):
     full_command = ssm_command.format(param)
-    result = ctx.run(full_command, hide='stdout')
+    try:
+        result = ctx.run(full_command, hide='stdout')
+    except invoke.exceptions.Failure as e:
+        print(e.result)
+        print(e.reason)
+        raise
     # if there's an exception, just let it pass through
 
     if not result.ok:
