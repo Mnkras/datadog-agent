@@ -45,7 +45,7 @@ def tearDownModule():
 def waitUntilListening(container, retries=20):
     for _ in range(0, retries):
         out = container.exec_run(cmd="netstat -a").output
-        if ":8125" in out or SOCKET_PATH in out:
+        if b":8125" in out or bytes(SOCKET_PATH) in out:
             return True
     return False
 
